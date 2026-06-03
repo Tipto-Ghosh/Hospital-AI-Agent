@@ -1,0 +1,30 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: hospital_ai_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: hospital_ai
+      MYSQL_USER: hospital_user
+      MYSQL_PASSWORD: hospitalpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./data/seed:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: hospital_ai_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  mysql_data:
