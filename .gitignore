@@ -216,3 +216,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+.vscode
+hospital_multiagent_ai_plan.md
