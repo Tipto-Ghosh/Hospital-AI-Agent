@@ -166,7 +166,7 @@ venv.bak/
 
 # mkdocs documentation
 /site
-
+hospital_multiagent_ai_plan.md
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -217,4 +217,4 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 .vscode
-hospital_multiagent_ai_plan.md
+secrets
