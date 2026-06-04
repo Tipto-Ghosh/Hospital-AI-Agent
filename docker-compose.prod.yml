@@ -1,4 +1,5 @@
 services:
+  # 1. Primary Database Security & Resource Allocation
   db:
     environment:
       MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
@@ -12,6 +13,7 @@ services:
         reservations:
           memory: 1G
 
+  # 2. Redis Production Caching & Policies
   redis:
     command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 1gb --maxmemory-policy allkeys-lru
     ports: !reset []
@@ -20,6 +22,27 @@ services:
         limits:
           cpus: '1.0'
           memory: 2G
+
+  # 3. Secure Langfuse Storage Isolation for Production
+  langfuse:
+    ports: !reset [] # Close public port 3000; route traffic securely via Nginx instead
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/langfuse.db
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # 4. Asynchronous Production Celery Worker Path Execution
+  worker:
+    command: python -m celery -A app.notifications.tasks worker --loglevel=info
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 3G
 
 secrets:
   mysql_root_password:
