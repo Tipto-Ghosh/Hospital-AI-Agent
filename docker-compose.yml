@@ -29,7 +29,8 @@ services:
         reservations:
           memory: 1G
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "hospital_user", "--password=hospital-ai-agent-1234"]
+      # FIXED: Uses mysqladmin ping with the root password file to avoid authentication failure loops
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$(cat /run/secrets/mysql_root_password)"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,7 +85,7 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - chroma-data:/chroma/data
+      - chroma-data:/chroma/chroma  # FIXED: Target path corrected to standard internal Chroma storage
     networks:
       - hospital-network
     environment:
@@ -99,6 +100,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # LANGSMITH CONFIG: Explicitly routes tracking to LangSmith
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-hospital-ai-api}
     ports:
       - "8000:8000"
     volumes:
@@ -121,6 +128,12 @@ services:
     command: celery -A app.notifications.tasks worker --loglevel=info
     env_file:
       - .env
+    environment:
+      # LANGSMITH CONFIG: Ensures asynchronous tasks are also observed and tracked
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-hospital-ai-worker}
     volumes:
       - .:/app
     networks:
@@ -144,25 +157,7 @@ services:
     depends_on:
       - api
 
-  # 8. Open-Source LLM Observability & Prompt Management (Langfuse)
-  langfuse:
-    image: langfuse/langfuse:2
-    container_name: hospital_ai_langfuse
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    env_file:
-      - .env
-    environment:
-      - NODE_ENV=production
-      # This explicitly overrides your shared .env MySQL URL to use a local SQLite file instead
-      - DATABASE_URL=file:/app/data/langfuse.db
-    volumes:
-      - langfuse-db:/app/data
-    networks:
-      - hospital-network
-
-  # 9. Performance Metrics Scraper (Prometheus)
+  # 8. Performance Metrics Scraper (Prometheus)
   prometheus:
     image: prom/prometheus:latest
     container_name: hospital_ai_prometheus
@@ -174,7 +169,7 @@ services:
     networks:
       - hospital-network
 
-  # 10. Diagnostics Dashboard (Grafana)
+  # 9. Diagnostics Dashboard (Grafana)
   grafana:
     image: grafana/grafana:latest
     container_name: hospital_ai_grafana
@@ -195,7 +190,6 @@ volumes:
   redis-data:
   ollama-models:
   chroma-data:
-  langfuse-db:
 
 networks:
   hospital-network:

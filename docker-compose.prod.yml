@@ -1,51 +1,60 @@
 services:
-  # 1. Primary Database Security & Resource Allocation
+  # 1. Core MySQL Relational Database
   db:
-    environment:
-      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
-      MYSQL_PASSWORD_FILE: /run/secrets/mysql_hospital_password
-    ports: !reset [] 
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 4G
-        reservations:
-          memory: 1G
+    restart: always
+    ports: !reset [] # Completely drops public port exposure (3306) in production
 
-  # 2. Redis Production Caching & Policies
+  # 2. Redis Cache & Celery Task Broker
   redis:
-    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 1gb --maxmemory-policy allkeys-lru
-    ports: !reset []
+    restart: always
+    ports: !reset [] # Drops public port exposure (6379) in production
+
+  # 3. Local Privacy-Compliant LLM Server (Ollama)
+  ollama:
+    restart: always
+    ports: !reset [] # Drops public port exposure (11434) in production
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 2G
+          memory: 4G # Enforces the strict 4GB upper boundary for memory allocation
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
-  # 3. Secure Langfuse Storage Isolation for Production
-  langfuse:
-    ports: !reset [] # Close public port 3000; route traffic securely via Nginx instead
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=file:/app/data/langfuse.db
+  # 4. Vector Database for RAG (ChromaDB)
+  chroma:
+    restart: always
+    ports: !reset [] # Drops public port exposure (8001) in production
+
+  # 5. Fast-API Backend Core Application
+  api:
+    restart: always
+    # Removes local code mounting block so production containers run isolated code builds
+    volumes: !reset []
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 2G
+          memory: 2G # Explicit 2GB memory headroom limitation
 
-  # 4. Asynchronous Production Celery Worker Path Execution
+  # 6. Celery Asynchronous Background Task Worker
   worker:
-    command: python -m celery -A app.notifications.tasks worker --loglevel=info
-    deploy:
-      resources:
-        limits:
-          cpus: '1.5'
-          memory: 3G
+    restart: always
+    volumes: !reset [] # Drops local dev directory synchronization mount
 
-secrets:
-  mysql_root_password:
-    file: ./secrets/mysql_root_password.txt
-  mysql_hospital_password:
-    file: ./secrets/mysql_hospital_password.txt
+  # 7. Reverse Proxy & Security Layer (Nginx)
+  nginx:
+    restart: always
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # Mounts your Let's Encrypt SSL paths into Nginx for HTTPS decryption handling
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+
+  # 8. Performance Metrics Scraper (Prometheus)
+  prometheus:
+    restart: always
+
+  # 9. Diagnostics Dashboard (Grafana)
+  grafana:
+    restart: always
