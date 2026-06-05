@@ -402,12 +402,12 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @property
     def is_production(self) -> bool:
-        return self.ENVIRONMENT == "production"   # ✅ fixed: was `= =`
+        return self.ENVIRONMENT == "production"   
 
     @computed_field  # type: ignore[misc]
     @property
     def is_development(self) -> bool:
-        return self.ENVIRONMENT == "development"  # ✅ fixed: was `= =`
+        return self.ENVIRONMENT == "development"  
 
     @model_validator(mode = "after")
     def _production_safety_checks(self) -> "Settings":
