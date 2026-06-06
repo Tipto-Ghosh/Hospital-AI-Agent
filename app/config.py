@@ -296,7 +296,7 @@ class SecuritySettings(BaseSettings):
         if (
             key.startswith("YOUR_")
             or "changeme" in key.lower()
-            or key == "4b8c25" * 8   # ✅ fixed: was `key  = =`
+            or key == "4b8c25" * 8   
             or len(key) < 20
         ):
             logging.warning(
