@@ -13,7 +13,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import AnyHttpUrl, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.logger import logging
@@ -43,26 +43,53 @@ class DatabaseSettings(BaseSettings):
     DB_POOL_RECYCLE_SECONDS: int = Field(default = 3600)
     DB_ECHO_SQL: bool = Field(
         default = False,
-        description = "Set True only in local dev to log every SQL statement. Otherwise keep false.",
+        description = "Set True only in local dev to log every SQL statement.",
     )
 
     @computed_field  # type: ignore[misc]
     @property
     def DATABASE_URL_ASYNC(self) -> str:
         """
-        Ensures the driver prefix is 'mysql+asyncmy'.
-        Accepts a plain 'mysql://' or 'mysql+mysqlconnector://' DSN from .env
-        and normalises it so SQLAlchemy's async engine always gets the right driver.
+        Normalises DATABASE_URL to use the correct async driver prefix.
+
+        Accepted input formats
+        ----------------------
+        mysql+asyncmy://...          → returned as-is (already correct)
+        mysql://...                  → rewritten to mysql+asyncmy://...
+        mysql+mysqlconnector://...   → rewritten to mysql+asyncmy://...
+        mysql+pymysql://...          → rewritten to mysql+asyncmy://...
+        sqlite+aiosqlite://...       → returned as-is (used in tests)
+        sqlite://...                 → returned as-is (used in tests)
+
+        Raises
+        ------
+        CustomException  if DATABASE_URL is empty or has no recognisable scheme.
         """
         url = self.DATABASE_URL
+
+        if not url:
+            raise CustomException(
+                error_message=(
+                    "DATABASE_URL is not set. "
+                    "Add it to your .env file, e.g.:\n"
+                    "  DATABASE_URL=mysql+asyncmy://hospital_user:password@db:3306/hospital_ai"
+                ),
+                error_detail="Missing required configuration.",
+            )
+
+        # Already using the correct async driver
         if url.startswith("mysql+asyncmy://"):
             return url
 
-        # Replace any other mysql driver prefix
+        # SQLite — used in tests; return as-is
+        if url.startswith("sqlite"):
+            return url
+
+        # Any other mysql:// variant — swap driver to asyncmy
         if "://" in url:
             logging.warning(
-                f"Expected mysql+asyncmy but got other prefix: {url} "
-                "from Class DatabaseSettings Method DATABASE_URL_ASYNC. Normalising to mysql+asyncmy."
+                f"Expected mysql+asyncmy but got other prefix: {url}. "
+                "Normalising to mysql+asyncmy."
             )
             _, rest = url.split("://", 1)
             return f"mysql+asyncmy://{rest}"
@@ -110,7 +137,7 @@ class RedisSettings(BaseSettings):
     REDIS_SOCKET_TIMEOUT: float = Field(default = 5.0)
     REDIS_SOCKET_CONNECT_TIMEOUT: float = Field(default = 2.0)
 
-    # Session / Cache TTLs
+    # Session / cache TTLs
     SESSION_TTL_MINUTES: int = Field(
         default = 30,
         ge = 5,
@@ -165,19 +192,13 @@ class LLMSettings(BaseSettings):
     )
 
     GROQ_API_KEY: str = Field(..., description = "Groq API key (free tier supported).")
-    HUGGINGFACE_API_KEY: str | None = Field(default = None, description = "HuggingFace API Key for embeddings.")
-
-    GROQ_BASE_URL: str = Field(
-        default = "https://api.groq.com/openai/v1",
+    
+    GROQ_BASE_URL: AnyHttpUrl = Field(
+        default = "https://api.groq.com/openai/v1",  # type: ignore[assignment]
         description = "Groq OpenAI-compatible base URL.",
     )
-    
-    OLLAMA_BASE_URL: str | None = Field(
-        default = None,
-        description = "Base URL for local Ollama instances.",
-    )
 
-    # Tier 1: Fast LLM used for Routing
+    # ---- Tier 1: Fast / Routing ----
     LLM_FAST_MODEL: str = Field(
         default = "llama-3.1-8b-instant",
         description = "Groq model for Supervisor intent classification.",
@@ -185,7 +206,7 @@ class LLMSettings(BaseSettings):
     LLM_FAST_MAX_TOKENS: int = Field(default = 512)
     LLM_FAST_TEMPERATURE: float = Field(default = 0.0, ge = 0.0, le = 2.0)
 
-    # Capable / Agentic
+    # ---- Tier 2: Capable / Agentic ----
     LLM_CAPABLE_MODEL: str = Field(
         default = "llama-3.3-70b-versatile",
         description = "Groq model for sub-agent reasoning and tool selection.",
@@ -193,7 +214,7 @@ class LLMSettings(BaseSettings):
     LLM_CAPABLE_MAX_TOKENS: int = Field(default = 1024)
     LLM_CAPABLE_TEMPERATURE: float = Field(default = 0.1, ge = 0.0, le = 2.0)
 
-    # Tier 3: Heavy / Complex Used for medical doc
+    # ---- Tier 3: Heavy / Complex ----
     LLM_HEAVY_MODEL: str = Field(
         default = "llama-3.3-70b-versatile",
         description = (
@@ -204,18 +225,17 @@ class LLMSettings(BaseSettings):
     LLM_HEAVY_MAX_TOKENS: int = Field(default = 2048)
     LLM_HEAVY_TEMPERATURE: float = Field(default = 0.2, ge = 0.0, le = 2.0)
 
-    # Embeddings (ChromaDB / RAG)
+    # ---- Embeddings (ChromaDB / RAG) ----
     EMBEDDING_MODEL: str = Field(
         default = "sentence-transformers/all-MiniLM-L6-v2",
         description = "HuggingFace model ID for sentence embeddings (RAG).",
     )
 
-    # Shared Groq settings
+    # ---- Shared Groq settings ----
     LLM_REQUEST_TIMEOUT: float = Field(
         default = 30.0,
         description = "HTTP timeout in seconds for all Groq API calls.",
     )
-
     LLM_MAX_RETRIES: int = Field(
         default = 3,
         ge = 0,
@@ -318,11 +338,11 @@ class ObservabilitySettings(BaseSettings):
     # Langfuse (self-hosted or cloud)
     LANGFUSE_SECRET_KEY: str | None = Field(default = None)
     LANGFUSE_PUBLIC_KEY: str | None = Field(default = None)
-    LANGFUSE_BASE_URL: str | None = Field(default = None) 
+    LANGFUSE_BASE_URL: AnyHttpUrl | None = Field(default = None)  # type: ignore[assignment]
 
     # LangSmith
     LANGSMITH_TRACING: bool = Field(default = False)
-    LANGSMITH_ENDPOINT: str | None = Field(default = None) 
+    LANGSMITH_ENDPOINT: AnyHttpUrl | None = Field(default = None)  # type: ignore[assignment]
     LANGSMITH_API_KEY: str | None = Field(default = None)
     LANGSMITH_PROJECT: str = Field(default = "Hospital-Ai-Agent")
     LANGCHAIN_API_KEY: str | None = Field(default = None)
@@ -337,7 +357,6 @@ class ObservabilitySettings(BaseSettings):
     def langsmith_enabled(self) -> bool:
         return self.LANGSMITH_TRACING and bool(self.LANGSMITH_API_KEY)
 
-    
     @model_validator(mode = "after")
     def _check_tracing_config(self) -> "ObservabilitySettings":
         """Log warnings when observability services are partially configured."""
