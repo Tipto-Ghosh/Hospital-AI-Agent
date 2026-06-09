@@ -1,15 +1,13 @@
 from __future__ import annotations
-
 from datetime import datetime
 from typing import Optional
-
-from sqlalchemy import TEXT,Integer,BigInteger,DateTime,Index,String,event,func
+from sqlalchemy import TEXT,BigInteger,DateTime,Index,Integer,String,func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.logger import logging
-from app.exception import CustomException
+
+
 
 class AuditLog(Base):
     """
@@ -17,6 +15,20 @@ class AuditLog(Base):
 
     Every row is an immutable event record.  No instance method on this
     class mutates an existing row — the only write path is log_action().
+
+    Column design
+    -------------
+    log_id          BIGINT AUTO_INCREMENT — supports billions of rows over
+                    the 7-year retention window without overflow.
+    session_id      VARCHAR(64) — matches the Redis/DB session key format.
+    patient_id      VARCHAR(20) — nullable; emergency logs have no patient.
+    agent_name      VARCHAR(50) — which sub-agent produced this log entry.
+    action          VARCHAR(100) — snake_case verb, e.g. 'read_medical_history'.
+    resource_type   VARCHAR(50) — entity type, e.g. 'appointment', 'lab_result'.
+    resource_id     VARCHAR(50) — PK of the accessed/modified resource.
+    payload_summary TEXT — non-PHI human-readable summary (see PHI rules above).
+    ip_address      VARCHAR(45) — IPv4 or IPv6; populated by FastAPI middleware.
+    timestamp       DATETIME — DB server time at INSERT, never application time.
     """
 
     __tablename__ = "audit_log"
@@ -27,7 +39,7 @@ class AuditLog(Base):
     )
 
     log_id: Mapped[int] = mapped_column(
-        Integer,
+        Integer,  # SQLite compat; migration DDL explicitly uses BIGINT in MySQL
         primary_key=True,
         autoincrement=True,
         comment="BIGINT to support billions of rows over the 7-year retention window.",
@@ -90,6 +102,7 @@ class AuditLog(Base):
         comment="Set by the DB server at INSERT — never set by application code.",
     )
 
+    # No update/delete methods — append-only contract
     def __repr__(self) -> str:
         return (
             f"<AuditLog id={self.log_id} "
@@ -97,6 +110,7 @@ class AuditLog(Base):
             f"patient={self.patient_id!r} ts={self.timestamp}>"
         )
 
+    # Convenience factory
     @classmethod
     async def log_action(
         cls,
@@ -111,7 +125,41 @@ class AuditLog(Base):
         payload_summary: Optional[str] = None,
         ip_address: Optional[str] = None,
     ) -> "AuditLog":
-        
+        """
+        Append a single audit event and flush it to the DB.
+
+        Parameters
+        ----------
+        session         AsyncSession — caller's active session; this method
+                        does NOT commit so the caller retains transaction control.
+        agent_name      Which sub-agent is logging (required).
+        action          Snake_case action verb (required).
+        session_id      Redis/DB session key (optional).
+        patient_id      Patient PK (optional — omit for pre-auth emergency logs).
+        resource_type   Entity type affected (optional).
+        resource_id     PK of the affected resource as a string (optional).
+        payload_summary Non-PHI human-readable summary (optional).
+        ip_address      Client IP from FastAPI request (optional).
+
+        Returns
+        -------
+        The newly created AuditLog instance (already flushed, log_id populated).
+
+        Example
+        -------
+            entry = await AuditLog.log_action(
+                session       = db,
+                agent_name    = "records_agent",
+                action        = "read_medical_history",
+                session_id    = "sess_abc123",
+                patient_id    = "P-2024-00001",
+                resource_type = "medical_record",
+                resource_id   = "42",
+                payload_summary = "Read 2 medical records (2024-01 to 2024-03)",
+                ip_address    = "192.168.1.100",
+            )
+            print(entry.log_id)  # available after flush
+        """
         entry = cls(
             agent_name=agent_name,
             action=action,
@@ -121,64 +169,8 @@ class AuditLog(Base):
             resource_id=resource_id,
             payload_summary=payload_summary,
             ip_address=ip_address,
+            # timestamp is set by the DB server_default — not passed here
         )
-        try:
-            session.add(entry)
-            await session.flush()
-            logging.info(
-                "AuditLog created: agent=%s, action=%s, patient=%s, resource=%s:%s",
-                agent_name, action, patient_id, resource_type, resource_id,
-            )
-            return entry
-        except Exception as exc:
-            logging.exception("Failed to create AuditLog entry.")
-            raise CustomException(
-                error_message="Audit log entry creation failed.",
-                error_detail=str(exc),
-            ) from exc
-
-
-
-@event.listens_for(AuditLog, "after_insert")
-def _log_audit_insert(mapper, connection, target: AuditLog) -> None:
-    try:
-        logging.debug(
-            "AuditLog after_insert: id=%d, agent=%s, action=%s, patient=%s",
-            target.log_id, target.agent_name, target.action, target.patient_id,
-        )
-    except Exception as exc:
-        logging.exception("Logging failure in AuditLog after_insert event.")
-        raise CustomException(
-            error_message="Failed to process AuditLog insert event.",
-            error_detail=str(exc),
-        ) from exc
-
-
-@event.listens_for(AuditLog, "after_update")
-def _log_audit_update(mapper, connection, target: AuditLog) -> None:
-    try:
-        logging.warning(
-            "AuditLog updated (should never happen): id=%d, agent=%s, action=%s",
-            target.log_id, target.agent_name, target.action,
-        )
-    except Exception as exc:
-        logging.exception("Logging failure in AuditLog after_update event.")
-        raise CustomException(
-            error_message="Failed to process AuditLog update event.",
-            error_detail=str(exc),
-        ) from exc
-
-
-@event.listens_for(AuditLog, "after_delete")
-def _log_audit_delete(mapper, connection, target: AuditLog) -> None:
-    try:
-        logging.warning(
-            "AuditLog deleted (should never happen): id=%d, agent=%s, action=%s",
-            target.log_id, target.agent_name, target.action,
-        )
-    except Exception as exc:
-        logging.exception("Logging failure in AuditLog after_delete event.")
-        raise CustomException(
-            error_message="Failed to process AuditLog delete event.",
-            error_detail=str(exc),
-        ) from exc
+        session.add(entry)
+        await session.flush()  # populates log_id without committing
+        return entry
