@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-
+from app.db.base import close_db, init_db
 from app.config import get_settings
 from app.logger import logging
 
@@ -21,8 +21,6 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     startup_start = time.monotonic()
-
-    from app.db.base import close_db, init_db
     try:
         await init_db()
         logging.info("✓ Database connection verified.")
@@ -269,11 +267,11 @@ def _register_routers(app: FastAPI) -> None:
 
     app.include_router(health_router)
 
-    _try_include(app, "app.api.routes.chat",          "/api/v1",    ["Chat"])
-    _try_include(app, "app.api.routes.appointments",  "/api/v1",    ["Appointments"])
-    _try_include(app, "app.api.routes.doctors",       "/api/v1",    ["Doctors"])
-    _try_include(app, "app.api.routes.auth",          "/api/v1",    ["Authentication"])
-    _try_include(app, "app.api.routes.admin",         "/admin/v1",  ["Admin"])
+    _try_include(app, "app.api.routes.chat","/api/v1",["Chat"])
+    _try_include(app, "app.api.routes.appointments","/api/v1",["Appointments"])
+    _try_include(app, "app.api.routes.doctors","/api/v1",["Doctors"])
+    _try_include(app, "app.api.routes.auth","/api/v1",["Authentication"])
+    _try_include(app, "app.api.routes.admin","/admin/v1",["Admin"])
 
 
 def _try_include(
