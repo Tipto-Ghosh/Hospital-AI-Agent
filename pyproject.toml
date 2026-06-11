@@ -16,6 +16,7 @@ dependencies = [
     "langgraph>=1.2.4",
     "prometheus-fastapi-instrumentator>=8.0.0",
     "pydantic-settings>=2.14.1",
+    "pyjwt>=2.13.0",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "redis>=8.0.0",
