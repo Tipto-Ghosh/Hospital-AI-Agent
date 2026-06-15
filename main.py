@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logging.info("✓ Redis connection verified.")
     except Exception as exc:
         logging.warning(
-            f"⚠ Redis ping failed: {exc} — session features will be unavailable."
+            f"⚠ Redis ping failed: {exc} - session features will be unavailable."
         )
 
     _configure_observability()
@@ -110,7 +110,7 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
         duration_ms = round((time.monotonic() - start) * 1000, 1)
 
         logging.info(
-            f"HTTP {request.method} {request.url.path} → {response.status_code}  {duration_ms:.1f}ms  "
+            f"HTTP {request.method} {request.url.path} -> {response.status_code}  {duration_ms:.1f}ms  "
             f"req_id={getattr(request.state, 'request_id', '-')}  "
             f"ip={request.client.host if request.client else '-'}"
         )
@@ -246,7 +246,7 @@ def _setup_prometheus(app: FastAPI) -> None:
 
         app.include_router(metrics_router)
         logging.warning(
-            "prometheus-fastapi-instrumentator not installed — "
+            "prometheus-fastapi-instrumentator not installed - "
             "metrics endpoint returns a stub. Run: pip install prometheus-fastapi-instrumentator"
         )
 
@@ -285,20 +285,20 @@ def _try_include(
         module = importlib.import_module(module_path)
         router = getattr(module, "router")
         app.include_router(router, prefix=prefix, tags=tags)
-        logging.debug(f"Router mounted: {module_path} → {prefix}")
+        logging.debug(f"Router mounted: {module_path} -> {prefix}")
     except ModuleNotFoundError:
         logging.debug(
-            f"Router {module_path} not yet implemented — skipping (expected during Phase 1)."
+            f"Router {module_path} not yet implemented - skipping (expected during Phase 1)."
         )
     except AttributeError:
         logging.warning(
-            f"Module {module_path} has no 'router' attribute — skipping."
+            f"Module {module_path} has no 'router' attribute - skipping."
         )
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title=f"{settings.HOSPITAL_NAME} — AI Assistant API",
+        title=f"{settings.HOSPITAL_NAME} - AI Assistant API",
         description=(
             "Multi-agent hospital AI system. "
             "Handles appointment booking, patient records, billing, "
@@ -337,6 +337,5 @@ def create_app() -> FastAPI:
     )
 
     return app
-
 
 app = create_app()
