@@ -20,7 +20,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel
 from app.logger import logging
 
-logger = logging.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 class CurrentDateTimeResult(BaseModel):
     """The current date and time, in multiple convenient forms."""

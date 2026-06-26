@@ -65,7 +65,7 @@ async def fallback_node(state: HospitalAgentState) -> dict[str, Any]:
         "next_action": "end",
     }
 
-async def fallback_fill_handler(state: HospitalAgentState) -> dict[str, Any]:
+async def slot_fill_handler_node(state: HospitalAgentState) -> dict[str, Any]:
     """
     The shared Slot Fill Handler graph node.
  

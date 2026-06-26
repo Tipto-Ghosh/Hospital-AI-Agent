@@ -26,7 +26,7 @@ import json
 from typing import Any 
 from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from langchain_core.tools import tool
-from langchain_core.agents import ToolNode
+from langgraph.prebuilt import ToolNode
 from sqlalchemy import select
 
 from app.agents.billing.prompts import build_billing_prompt

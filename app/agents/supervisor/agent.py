@@ -141,7 +141,7 @@ async def supervisor_node(state: HospitalAgentState) -> dict[str, Any]:
     # Step 1: fast pre-LLM emergency keyword scan
     if contains_emergency_keyword(latest_text):
         logger.warning(
-            f"Emergency keyword matched | session={state["session_id"][:8]}... text_preview={latest_text[:50]}",
+            f'Emergency keyword matched | session={state["session_id"][:8]}... text_preview={latest_text[:50]}'
         )
         return {
             "is_emergency": True,

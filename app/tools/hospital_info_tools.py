@@ -15,7 +15,7 @@ from app.db.models.medication import HospitalInfo
 from app.db.repositories.doctor_repo import DoctorRepository
 from app.logger import logging
 
-logger = logging.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 @tool
 async def get_hospital_info(topic: str) -> str:

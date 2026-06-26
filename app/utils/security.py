@@ -22,7 +22,7 @@ import re
 import unicodedata
 from app.logger import logging
 
-logger = logging.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _SUSPICIOUS_UNICODE_CHARS: list[str] = [
     "\u200b",  # zero-width space

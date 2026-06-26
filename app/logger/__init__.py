@@ -1,32 +1,37 @@
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
 
-class Logger:
-    def __init__(self) -> None:
-        root_dir = Path(__file__).resolve().parents[2]
-        logs_dir = root_dir / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
+ROOT_DIR = Path(__file__).resolve().parents[2]
+logger = logging.getLogger("HospitalAI")
 
-        log_file = f"{datetime.now().strftime('%m_%d_%Y_%H_%M_%S')}.log"
-        log_file_path = logs_dir / log_file
+def setup_logger():
+    """Explicitly initializes the logging configuration when called."""
+    # Check if handlers already exist to prevent duplicate setups
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        return
 
-        log_format = "[%(asctime)s] Line: %(lineno)d | %(name)s - %(levelname)s - %(message)s"
-        date_format = "%Y-%m-%d %H:%M:%S"
+    logs_dir = os.path.join(ROOT_DIR, "logs")
+    os.makedirs(logs_dir, exist_ok = True)
 
-        logging.basicConfig(
-            filename=str(log_file_path),
-            format=log_format,
-            datefmt=date_format,
-            level=logging.INFO,
-        )
+    LOG_FILE = f"app_{datetime.now().strftime('%Y_%m_%d_%H_%M')}.log"
+    LOG_FILE_PATH = os.path.join(logs_dir, LOG_FILE)
 
-        self.logger = logging.getLogger("multi-agent-ai-system")
-        self.logger.setLevel(logging.INFO)
+    log_format = "[%(asctime)s] Line: %(lineno)d | %(name)s - %(levelname)s - %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
 
-    def get_logger(self) -> logging.Logger:
-        return self.logger
+    logging.basicConfig(
+        filename=LOG_FILE_PATH,
+        filemode='a', 
+        format=log_format,
+        datefmt=date_format,
+        level=logging.INFO
+    )
 
-
-logger = Logger().get_logger()
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
+    root_logger.addHandler(console_handler)

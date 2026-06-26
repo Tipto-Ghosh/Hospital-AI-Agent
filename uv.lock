@@ -324,6 +324,15 @@ wheels = [
 ]
 
 [[package]]
+name = "from-root"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/30/5259cfafc8372df008a5605ca19aba9d560285471ee043f39cbc5a7b7fa2/from_root-1.3.0.tar.gz", hash = "sha256:da1359f5faabca367f685cac927cb2f307bb35c488fdd0361f963d6f1cd2674f", size = 4858, upload-time = "2022-12-27T12:41:25.78Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/33/a8/451d0294d5d9ead3d26c25837df0588d1bcdd9235abf91e0ded629369921/from_root-1.3.0-py3-none-any.whl", hash = "sha256:7446a9b6481e668329cc11ad0a234fe4c83c63468c652e037d02846a75c726f8", size = 5489, upload-time = "2022-12-27T12:41:23.989Z" },
+]
+
+[[package]]
 name = "fsspec"
 version = "2026.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -474,6 +483,7 @@ dependencies = [
     { name = "asyncmy" },
     { name = "celery" },
     { name = "fastapi" },
+    { name = "from-root" },
     { name = "langchain" },
     { name = "langchain-groq" },
     { name = "langchain-huggingface" },
@@ -497,6 +507,7 @@ requires-dist = [
     { name = "asyncmy", specifier = ">=0.2.11" },
     { name = "celery", specifier = ">=5.6.3" },
     { name = "fastapi", specifier = ">=0.136.3" },
+    { name = "from-root", specifier = ">=1.3.0" },
     { name = "langchain", specifier = ">=1.3.4" },
     { name = "langchain-groq", specifier = ">=1.1.2" },
     { name = "langchain-huggingface", specifier = ">=1.2.2" },
