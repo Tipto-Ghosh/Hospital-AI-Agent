@@ -1,12 +1,14 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from typing import Optional
 from app.llm.factory import get_embeddings
 from app.logger import logging
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CHROMA_PERSIST_DIR = "./chroma_data"
-DEFAULT_COLLECTION_NAME = "hospital_faqs"
+DEFAULT_CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data")
+DEFAULT_COLLECTION_NAME = os.getenv("DEFAULT_COLLECTION_NAME", "hospital_faqs")
 
 _client = None
 _collections: dict[str, object] = {}
