@@ -161,7 +161,7 @@ def get_llm(tier: LLMTier) -> BaseChatModel:
 
 def get_embeddings():
     """
-    Return a sentence embedding model for the ChromaDB RAG layer (Phase 4).
+    Return a sentence embedding model for the ChromaDB RAG layer.
 
     Uses settings.llm.EMBEDDING_MODEL (default:
     'sentence-transformers/all-MiniLM-L6-v2') via langchain_huggingface.
@@ -173,9 +173,7 @@ def get_embeddings():
 
     Raises
     ------
-    ImportError     if langchain_huggingface / sentence-transformers
-                    are not installed. Install with:
-                        pip install langchain-huggingface sentence-transformers
+    ImportError: if langchain_huggingface / sentence-transformer are not installed.
     """
     cfg = get_settings().llm
     logger.debug("Building HuggingFaceEmbeddings | model=%s", cfg.EMBEDDING_MODEL)
