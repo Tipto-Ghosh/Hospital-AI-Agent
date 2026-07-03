@@ -14,8 +14,8 @@ from app.rag.vector_store import get_or_create_collection
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CHUNK_SIZE = os.getenv("DEFAULT_CHUNK_SIZE", 500)
-DEFAULT_CHUNK_OVERLAP = os.getenv("DEFAULT_CHUNK_OVERLAP", 50)
+DEFAULT_CHUNK_SIZE = int(os.getenv("DEFAULT_CHUNK_SIZE", 500))
+DEFAULT_CHUNK_OVERLAP = int(os.getenv("DEFAULT_CHUNK_OVERLAP", 50))
 
 
 def _content_hash(content: str) -> str:
@@ -68,7 +68,7 @@ async def ingest_hospital_info_from_db(
         doc_id = _content_hash(page_content)
         metadata = {
             "source": "hospital_info",
-            "info_id": row.id,
+            "info_id": row.info_id,
             "category": row.category,
             "topic": row.topic,
         }
@@ -150,7 +150,7 @@ def ingest_from_file(
     Load a plain text or PDF file, split it into chunks, and ingest them into the specified Chroma collection.
     """
     text = _load_text_from_file(Path(file_path))
-    if not text.exists():
+    if not text:
         logger.warning(
             f"ingest_from_file: {file_path} contains no extractable text.")
         return {"total_chunks": 0, "ingested": 0, "skipped": 0}
