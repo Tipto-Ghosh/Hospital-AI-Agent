@@ -1,32 +1,58 @@
 """
-The central StateGraph wires every node built for our system into a single
-complied graph.
+input_handler_node and load_session_memory_node
+---------------------------------------------------
+input_handler and load_session_memory as the first two nodes in the graph, 
+ahead of the supervisor. 
 
-input_handler and load_session_memory as the first nodes in the graph, ahead of
-the supervisor node.
-
-# input_handler_node: 
-    sanitizes the latest human message via
+  - input_handler_node: sanitizes the latest human message via
     app.utils.security.sanitize_input, and runs check_for_injection as
-    a non-blocking, logged security signal. It does not mutate
+    a non-blocking, logged security signal. It does NOT mutate
     state["messages"] in place instead it replaces the most recent HumanMessage's
     content with the sanitized version.
 
-# load_session_memory_node:
-    loads the session's memory from the database, and injects it into
-    state["messages"] as a SystemMessage. This is done after input_handler_node
-    so that any prompt-injection attempts in the human message are not
-    persisted to memory.
+  - load_session_memory_node: currently a no-op pass-through.
+
+Checkpointer
+-------------
+checkpointer = None for now.
+
+Routing logic
+------------------------------
+The supervisor node already resolves state["next_action"] to
+the DESTINATION NODE NAME, not just the raw intent string including
+the is_authenticated-based branch for patient_records ->
+auth_agent vs records_agent. So the conditional edge leaving
+"supervisor" is a simple, direct dispatch on state["next_action"].
+
+Tool-call loop-backs: info_agent, records_agent, billing_agent,
+medication_agent, and feedback_agent each optionally bind tools via
+llm.bind_tools(...) and set next_action to a *_tools sentinel
+("info_tools", "records_tools", "billing_tools", "medication_tools",
+"feedback_tools") when the LLM requests a tool call. Each such ToolNode
+routes back to its originating agent node so the agent can produce a
+final answer using the tool results.
+
+Mutation flow: booking_agent, cancel_agent, and reschedule_agent never
+execute a write directly - they set state["pending_confirmation"] and
+end their turn (next_action="end"). On the PATIENT'S NEXT MESSAGE, this
+graph is expected to be invoked with conditional_entry routing already
+having sent state to confirmation_handler instead of supervisor
+whenever state["pending_confirmation"] is not None - that branching
+decision lives in the API layer (app/api/routes/chat.py), which decides
+the entry node per turn. Within this graph, confirmation_handler routes
+to either action_executor (on "confirmed"), back to itself for a
+re-prompt (on "end"), or to save_memory (on "aborted").
 """
 
 from __future__ import annotations
+
 from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage
-from langgraph.graph import START, END, StateGraph
+from langgraph.graph import END, START, StateGraph
 
 from app.agents.billing.agent import billing_agent_node, billing_tool_node
-from app.agents.booking.agent import booking_agent_node, booking_tools
+from app.agents.booking.agent import booking_agent_node
 from app.agents.cancellation.agent import cancel_agent_node
 from app.agents.emergency.agent import emergency_agent_node
 from app.agents.feedback.agent import feedback_agent_node, feedback_tool_node
@@ -39,11 +65,61 @@ from app.agents.shared.confirmation_handler import action_executor_node, confirm
 from app.agents.shared.fallback import fallback_node, slot_fill_handler_node
 from app.agents.state import HospitalAgentState
 from app.agents.supervisor.agent import supervisor_node
+from app.config import get_settings
 from app.logger import logging
 from app.utils.security import check_for_injection, sanitize_input
 
-
 logger = logging.getLogger(__name__)
+
+_langfuse_handler_cache: Any = None
+
+
+def get_langfuse_handler() -> Any:
+    global _langfuse_handler_cache
+
+    if _langfuse_handler_cache is not None:
+        return _langfuse_handler_cache
+
+    settings = get_settings()
+
+    if not settings.obs.langfuse_enabled:
+        logger.debug("get_langfuse_handler: Langfuse not configured, tracing disabled")
+        return None
+
+    try:
+        from langfuse.langchain import CallbackHandler
+    except ImportError:
+        logger.warning(
+            "get_langfuse_handler: langfuse package not installed - tracing disabled. "
+            "Install it with: pip install langfuse"
+        )
+        return None
+
+    try:
+        kwargs: dict[str, Any] = {
+            "secret_key": settings.obs.LANGFUSE_SECRET_KEY,
+            "public_key": settings.obs.LANGFUSE_PUBLIC_KEY,
+        }
+        if settings.obs.LANGFUSE_BASE_URL:
+            kwargs["host"] = str(settings.obs.LANGFUSE_BASE_URL)
+
+        handler = CallbackHandler(**kwargs)
+        logger.info("get_langfuse_handler: Langfuse tracing enabled")
+    except Exception as exc:
+        logger.error(f"get_langfuse_handler: failed to construct CallbackHandler: {exc}")
+        return None
+
+    _langfuse_handler_cache = handler
+    return handler
+
+
+def reset_langfuse_handler_cache() -> None:
+    """
+    Clear the cached Langfuse handler.
+    """
+    global _langfuse_handler_cache
+    _langfuse_handler_cache = None
+
 
 def _latest_human_message_index(messages: list) -> int | None:
     """Return the index of the most recent HumanMessage in messages, or None."""
@@ -52,24 +128,14 @@ def _latest_human_message_index(messages: list) -> int | None:
             return i
     return None
 
+
 async def input_handler_node(state: HospitalAgentState) -> dict[str, Any]:
     """
     Sanitize the latest patient message before it reaches any other node.
 
-    Replaces the most recent HumanMessage's content with the sanitized
-    version (HTML tags, control characters, zero-width characters
-    stripped; whitespace collapsed; length-capped) via
-    app.utils.security.sanitize_input.
-
     Also runs check_for_injection as a non-blocking signal: a match is
     logged as a warning but does NOT alter routing or block the
     message.
-
-    Returns
-    -------
-    A partial state update dict containing the sanitized HumanMessage
-    (same message id as the original) or an empty dict if there is no human message 
-    yet, or it needed no changes.
     """
     messages = state["messages"]
     index = _latest_human_message_index(messages)
@@ -78,11 +144,7 @@ async def input_handler_node(state: HospitalAgentState) -> dict[str, Any]:
         return {}
 
     original_message = messages[index]
-    original_text = (
-        original_message.content
-        if isinstance(original_message.content, str)
-        else str(original_message.content)
-    )
+    original_text = original_message.content if isinstance(original_message.content, str) else str(original_message.content)
 
     sanitized_text = sanitize_input(original_text)
 
@@ -100,47 +162,28 @@ async def input_handler_node(state: HospitalAgentState) -> dict[str, Any]:
 
 async def load_session_memory_node(state: HospitalAgentState) -> dict[str, Any]:
     """
-    Load Redis session memory and patient long-term
-    context into the graph state.
-
-    NOT YET IMPLEMENTED - Phase 3 work. This is currently a no-op
-    pass-through: with checkpointer=None, the caller is responsible for
-    supplying the full conversation history as part of the initial
-    state passed to invoke()/ainvoke(), so there is nothing to load
-    from Redis yet.
-
-    Returns
-    -------
-    An empty partial state update dict.
+    Load Redis session memory and patient long-term context into the graph state.
     """
     return {}
+
 
 async def save_memory_node(state: HospitalAgentState) -> dict[str, Any]:
     """
-    Persist this turn to Tier 2 (Redis) and, periodically, Tier 3
-    (MySQL conversation_memory).
-
-    NOT YET IMPLEMENTED - Phase 3 work. This is currently a no-op
-    terminal node - every path through the graph converges here before
-    END, so wiring in real persistence later requires no changes to any
-    other node or edge.
-
-    Returns
-    -------
-    An empty partial state update dict.
+    Persist this turn to Redis and, periodically MySQL conversation_memory.
     """
     return {}
+
 
 def _route_from_supervisor(state: HospitalAgentState) -> str:
     """
     Conditional edge function for the supervisor node.
 
-    The supervisor (Step 28) already resolves state["next_action"] to
+    The supervisor already resolves state["next_action"] to
     the destination node name - including the is_authenticated-based
-    patient_records -> auth_agent branch and the is_emergency fast-path
-    -> emergency_interrupt - so this is a direct dispatch.
+    patient_records -> auth_agent branch - so this is a direct dispatch.
     """
     return state.get("next_action", "fallback")
+
 
 def _route_from_tool_capable_agent(state: HospitalAgentState) -> str:
     """
@@ -151,28 +194,9 @@ def _route_from_tool_capable_agent(state: HospitalAgentState) -> str:
     when the LLM requested a tool call, "info_agent" for the
     medication-agent self-medication redirect, "auth_required" for the
     records-agent unauthenticated case, or "end" for a final answer.
-    build_graph()'s edge mapping for each specific node only lists the
-    subset of these that node can actually produce.
-    """
-    return state.get("next_action", "end")
-
-def _route_from_mutation_agent(state: HospitalAgentState) -> str:
-    """
-    Conditional edge function shared by booking_agent, cancel_agent,
-    and reschedule_agent.
-
-    These agents only ever set next_action to "auth_agent" (redirect to
-    authentication, cancel/reschedule only) or "end" (a slot-filling
-    question, a clarification request, or pending_confirmation has been
-    set and the summary message asks the patient to confirm). None of
-    the three binds LLM tools directly, and none of them currently
-    delegates to the shared slot_fill_handler node as a separate graph
-    hop - booking_agent_node (Step 31) performs its own inline
-    slot-filling and asks the next question directly when a slot is
-    missing, rather than routing through slot_fill_handler. That shared
-    node remains wired into the graph below (reachable in principle)
-    but nothing currently routes to it - a natural target for a future
-    refactor of booking_agent_node.
+    All five sentinels plus "end"/"auth_required"/"info_agent" are
+    valid here; build_graph()'s edge mapping for each specific node
+    only lists the subset that node can actually produce.
     """
     return state.get("next_action", "end")
 
@@ -181,14 +205,23 @@ def _route_from_confirmation_handler(state: HospitalAgentState) -> str:
     """
     Conditional edge function for confirmation_handler.
 
-    "confirmed"  -> action_executor (perform the write)
-    "aborted"    -> save_memory (patient declined, message already set)
-    "end"        -> save_memory (ambiguous reply, already re-prompted -
-                    the next invocation will re-evaluate the patient's
-                    NEXT message against the same pending_confirmation)
-    "fallback"   -> fallback (defensive case: no pending_confirmation found)
+    "confirmed" -> action_executor (perform the write)
+    "aborted" -> save_memory (patient declined, message already set)
+    "end" -> confirmation_handler (ambiguous reply, re-prompted -
+        loops back to itself since the next invocation will
+        re-evaluate the patient's NEXT message against the
+        same pending_confirmation)
+    "fallback" -> fallback (defensive case: no pending_confirmation found)
     """
     return state.get("next_action", "fallback")
+
+
+def _route_from_mutation_agent(state: HospitalAgentState) -> str:
+    """
+    Conditional edge function shared by booking_agent, cancel_agent,
+    and reschedule_agent.
+    """
+    return state.get("next_action", "end")
 
 
 def build_graph(checkpointer: Any = None) -> Any:
@@ -198,15 +231,15 @@ def build_graph(checkpointer: Any = None) -> Any:
     Parameters
     ----------
     checkpointer: LangGraph checkpointer for persistence across turns.
-    
+
     Returns
     -------
     A compiled LangGraph graph (CompiledStateGraph), ready for
     .invoke() / .ainvoke() / .astream().
     """
     graph = StateGraph(HospitalAgentState)
-    
-    # Add all nodes to the graph
+
+    # node list
     graph.add_node("input_handler", input_handler_node)
     graph.add_node("load_session_memory", load_session_memory_node)
     graph.add_node("supervisor", supervisor_node)
@@ -238,10 +271,10 @@ def build_graph(checkpointer: Any = None) -> Any:
     graph.add_edge("input_handler", "load_session_memory")
     graph.add_edge("load_session_memory", "supervisor")
 
-    """ 
-    Supervisor dispatches directly to the destination node named by
-    state["next_action"].
-    """
+    # Supervisor dispatches directly to the destination node named by
+    # state["next_action"] (already resolved by supervisor_node itself,
+    # including the patient_records auth branch and the emergency
+    # fast-path / LLM-classified emergency routes).
     graph.add_conditional_edges(
         "supervisor",
         _route_from_supervisor,
@@ -260,7 +293,7 @@ def build_graph(checkpointer: Any = None) -> Any:
         },
     )
 
-    # info_agent <-> info_tools 
+    # info_agent <-> info_tools (ReAct-style tool-call loop)
     graph.add_conditional_edges(
         "info_agent",
         _route_from_tool_capable_agent,
@@ -343,8 +376,6 @@ def build_graph(checkpointer: Any = None) -> Any:
 
     # slot_fill_handler: either asks a question (await_slot) or all
     # slots are filled and it loops back to supervisor for re-routing.
-    # (Wired in and reachable; see _route_from_mutation_agent's
-    # docstring above - no current node routes here yet.)
     graph.add_conditional_edges(
         "slot_fill_handler",
         lambda state: state.get("next_action", "await_slot"),
@@ -352,8 +383,8 @@ def build_graph(checkpointer: Any = None) -> Any:
     )
 
     # confirmation_handler: confirmed -> execute the write; aborted ->
-    # done (message already set); end -> ambiguous reply, already
-    # re-prompted; fallback -> defensive case.
+    # done (message already set); end -> ambiguous reply, re-prompted
+    # (stays here for the next invocation); fallback -> defensive case.
     graph.add_conditional_edges(
         "confirmation_handler",
         _route_from_confirmation_handler,
@@ -372,8 +403,37 @@ def build_graph(checkpointer: Any = None) -> Any:
     graph.add_edge("save_memory", END)
 
     compiled = graph.compile(checkpointer=checkpointer)
-    logger.info(
-        f"Hospital-AI-Agent StateGraph compiled successfully "
-        f"(checkpointer={'None' if checkpointer is None else type(checkpointer).__name__})"
-    )
+    logger.info("Hospital-AI-Agent StateGraph compiled successfully (checkpointer=%s)" % ("None" if checkpointer is None else type(checkpointer).__name__))
     return compiled
+
+
+async def ainvoke_with_tracing(
+    compiled_graph: Any,
+    state: HospitalAgentState,
+    extra_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Invoke a compiled graph with Langfuse tracing attached, if configured.
+
+    Parameters
+    ----------
+    compiled_graph: The graph returned by build_graph().
+    state: The HospitalAgentState to invoke the graph with.
+    extra_config: Optional additional LangGraph run config (e.g.
+                      {"configurable": {"thread_id": session_id}} once a
+                      checkpointer is wired in). Merged with the
+                      callbacks list this function constructs — any
+                      "callbacks" key in extra_config is combined with
+                      (not overwritten by) the Langfuse handler.
+
+    Returns
+    -------
+    The resulting state dict from compiled_graph.ainvoke().
+    """
+    handler = get_langfuse_handler()
+
+    config: dict[str, Any] = dict(extra_config or {})
+    existing_callbacks = config.get("callbacks", [])
+    config["callbacks"] = existing_callbacks + ([handler] if handler else [])
+
+    return await compiled_graph.ainvoke(state, config=config)
