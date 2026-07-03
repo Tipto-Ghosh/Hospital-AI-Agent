@@ -152,16 +152,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     Each IP gets RATE_LIMIT_PER_MINIUTE tokens per window.
     Tokens are tracked in Redis with a TTL of 60 seconds.
     
-    Redis Key pattern: rate_limit:<ip_address>
+    Redis Key pattern: ratelimit:<ip_address>
     """
-    _REDIS_PREFIX = "rate_limit:"
+    _REDIS_PREFIX = "ratelimit:"
     _WINDOW_SECONDS = 60
     
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
         self._limit = settings.security.RATE_LIMIT_PER_MINUTE
         # in memory fallback when Redis is unavailable
-        self._fallback: dict[str, list[float]] = {}
+        self._fallback: dict[str, tuple[int , float]] = {}
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.url.path in _RATE_LIMIT_EXEMPT:
@@ -242,7 +242,7 @@ class InputSanitizationMiddleware(BaseHTTPMiddleware):
     - If any input is deemed unsafe, returns a 400 Bad Request response.
     """
     _CHAT_PATH = "/api/v1/chat"
-    _TEXT_FIELD_CANDIDATES = ("test", "message", "content")
+    _TEXT_FIELD_CANDIDATES = ("text", "message", "content")
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.method != "POST" or request.url.path != self._CHAT_PATH:

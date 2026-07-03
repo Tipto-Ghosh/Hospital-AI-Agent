@@ -103,7 +103,7 @@ async def slot_fill_handler_node(state: HospitalAgentState) -> dict[str, Any]:
         }
     
     question = generate_slot_question(missing_slot, entities)
-    logger.ingfo(
+    logger.info(
         f"slot_fill_handler: session={session_id} missing_slot={missing_slot}"
     )
     
