@@ -1,1 +1,2 @@
-# This file makes the directory a Python package
+from app.logger import setup_logger
+setup_logger()

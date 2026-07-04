@@ -4,7 +4,7 @@ from typing import Optional
 
 from sqlalchemy import TEXT, Boolean, DateTime, Enum, String, event, func
 from sqlalchemy.orm import Mapped, mapped_column
-
+from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.logger import logging
 from app.exception import CustomException
@@ -34,7 +34,24 @@ class Patient(Base):
         DateTime, nullable=False, server_default=func.now()
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
+    
+    
+    medical_records = relationship(
+        "MedicalRecord", back_populates="patient",lazy = "select", cascade="all, delete-orphan"
+    )
+    lab_results = relationship(
+        "LabResult",
+        back_populates="patient",
+        lazy="select",
+        cascade="all, delete-orphan"
+    )
+    prescriptions = relationship(
+        "Prescription",
+        back_populates="patient",
+        lazy="select",
+        cascade="all, delete-orphan"
+    )
+    
     def __repr__(self) -> str:
         return (
             f"<Patient id={self.patient_id!r} name={self.full_name!r} "

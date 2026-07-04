@@ -56,6 +56,17 @@ class Doctor(Base):
         "DoctorSchedule", back_populates="doctor",
         cascade="all, delete-orphan", lazy="select"
     )
+    
+    medical_records = relationship(
+        "MedicalRecord",
+        back_populates="doctor",
+        lazy="select"
+    )
+    prescriptions = relationship(
+        "Prescription",
+        back_populates="doctor",
+        lazy="select"
+    )
 
     def __repr__(self) -> str:
         return (

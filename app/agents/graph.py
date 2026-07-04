@@ -185,6 +185,12 @@ def _route_from_supervisor(state: HospitalAgentState) -> str:
     return state.get("next_action", "fallback")
 
 
+def _route_entry(state: HospitalAgentState) -> str:
+    """Route to confirmation_handler if pending_confirmation exists else
+    normal flow.
+    """
+    return "confirmation_handler" if state.get("pending_confirmation") is not None else "normal"
+
 def _route_from_tool_capable_agent(state: HospitalAgentState) -> str:
     """
     Conditional edge function shared by info_agent, records_agent,
@@ -267,9 +273,17 @@ def build_graph(checkpointer: Any = None) -> Any:
     graph.add_node("feedback_tools", feedback_tool_node)
 
     # Entry: START -> input_handler -> load_session_memory -> supervisor
-    graph.add_edge(START, "input_handler")
     graph.add_edge("input_handler", "load_session_memory")
     graph.add_edge("load_session_memory", "supervisor")
+    
+    graph.add_conditional_edges(
+        START,
+        _route_entry,
+        {
+            "confirmation_handler": "confirmation_handler",
+            "normal": "input_handler",
+        },
+    )
 
     # Supervisor dispatches directly to the destination node named by
     # state["next_action"] (already resolved by supervisor_node itself,
