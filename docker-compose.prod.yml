@@ -1,60 +1,73 @@
+# docker-compose-prod.yml
+# Production overrides for hospital-ai-agent stack.
+# Use together with the base docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose-prod.yml up -d
+
 services:
-  # 1. Core MySQL Relational Database
-  db:
-    restart: always
-    ports: !reset [] # Completely drops public port exposure (3306) in production
 
-  # 2. Redis Cache & Celery Task Broker
-  redis:
-    restart: always
-    ports: !reset [] # Drops public port exposure (6379) in production
+  # ---- Core Services ----
 
-  # 3. Local Privacy-Compliant LLM Server (Ollama)
-  ollama:
+  hospital-db:
     restart: always
-    ports: !reset [] # Drops public port exposure (11434) in production
+    ports: !reset []                    # No direct host access to MySQL
+
+  hospital-redis:
+    restart: always
+    ports: !reset []                    # No direct host access to Redis
+
+  hospital-ollama:
+    restart: always
+    ports: !reset []                    # Ollama accessible only inside the network
     deploy:
       resources:
         limits:
-          memory: 4G # Enforces the strict 4GB upper boundary for memory allocation
+          memory: 4G                   # Hard limit for the LLM container
         reservations:
           devices:
             - driver: nvidia
               count: all
               capabilities: [gpu]
 
-  # 4. Vector Database for RAG (ChromaDB)
-  chroma:
+  hospital-chroma:
     restart: always
-    ports: !reset [] # Drops public port exposure (8001) in production
+    ports: !reset []                    # ChromaDB not exposed to the host
 
-  # 5. Fast-API Backend Core Application
-  api:
+  hospital-api:
     restart: always
-    # Removes local code mounting block so production containers run isolated code builds
-    volumes: !reset []
+    volumes: !reset []                  # No local code or chroma_data bind mount
     deploy:
       resources:
         limits:
-          memory: 2G # Explicit 2GB memory headroom limitation
+          memory: 2G                   # API memory cap
 
-  # 6. Celery Asynchronous Background Task Worker
-  worker:
+  hospital-worker:
     restart: always
-    volumes: !reset [] # Drops local dev directory synchronization mount
+    volumes: !reset []                  # No local code sync
 
-  # 7. Reverse Proxy & Security Layer (Nginx)
-  nginx:
+  # ---- Reverse Proxy ----
+
+  hospital-nginx:
     restart: always
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      # Mounts your Let's Encrypt SSL paths into Nginx for HTTPS decryption handling
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro   # Mount actual Let's Encrypt certificates
+      - ./nginx/logs:/var/log/nginx            # Persist access/error logs
+    # Removes certbot-webroot and the ./nginx/certs dev mount
 
-  # 8. Performance Metrics Scraper (Prometheus)
-  prometheus:
-    restart: always
+  # ---- Observability (always on in production) ----
 
-  # 9. Diagnostics Dashboard (Grafana)
-  grafana:
+  hospital-langfuse:
     restart: always
+    profiles: !reset []                 # Removes the observability profile → always starts
+    # Ensure you have set LANGFUSE_DATABASE_URL, LANGFUSE_NEXTAUTH_SECRET, LANGFUSE_SALT in .env
+
+  hospital-prometheus:
+    restart: always
+    profiles: !reset []                 # Always start monitoring
+
+  hospital-grafana:
+    restart: always
+    profiles: !reset []
+    # Optionally, add a restricted host port if you need direct access:
+    # ports:
+    #   - "127.0.0.1:3001:3000"
